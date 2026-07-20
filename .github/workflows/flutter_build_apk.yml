@@ -4,19 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       release_url:
-        description: 'URL Release GitHub tempat ZIP project disimpan'
+        description: 'URL Release'
         required: true
         type: string
       build_type:
-        description: 'Tipe Build (debug/release)'
+        description: 'Build Type'
         required: true
         default: 'release'
-        type: choice
-        options:
-          - debug
-          - release
+        type: string
       tag:
-        description: 'Tag untuk identifikasi build'
+        description: 'Tag'
         required: true
         type: string
 
@@ -27,14 +24,85 @@ jobs:
     timeout-minutes: 30
     
     steps:
-      # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.16.0'
+          channel: 'stable'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Download Project ZIP
+        run: |
+          echo "📥 Downloading project..."
+          curl -L -o project.zip "${{ github.event.inputs.release_url }}/download/project.zip"
+          ls -la project.zip
+
+      - name: Extract Project
+        run: |
+          mkdir -p project
+          unzip -o project.zip -d project/
+          ls -la project/
+
+      - name: Verify Flutter Project
+        run: |
+          if [ ! -f "project/pubspec.yaml" ]; then
+            echo "❌ pubspec.yaml not found!"
+            exit 1
+          fi
+          echo "✅ Flutter project verified!"
+
+      - name: Get Flutter Dependencies
+        run: |
+          cd project
+          flutter pub get
+          flutter clean
+
+      - name: Build APK
+        run: |
+          cd project
+          if [ "${{ github.event.inputs.build_type }}" == "debug" ]; then
+            echo "🔨 Building DEBUG APK..."
+            flutter build apk --debug
+          else
+            echo "🔨 Building RELEASE APK..."
+            flutter build apk --release --split-per-abi
+          fi
+
+      - name: List APK Files
+        run: |
+          echo "📱 APK files:"
+          find project/build -name "*.apk" -type f -exec ls -lh {} \;
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-apk-${{ github.event.inputs.build_type }}
+          path: |
+            project/build/app/outputs/flutter-apk/*.apk
+            project/build/app/outputs/apk/**/*.apk
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload Build Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            project/build/**/*.log
+            project/build/**/*.txt
+          retention-days: 3        with:
           flutter-version: '3.16.0'
           channel: 'stable'
           cache: true
