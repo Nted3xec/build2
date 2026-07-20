@@ -1,327 +1,49 @@
-name: Web to APK Converter
+name: Web to APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # ← INI HARUS ADA!
     inputs:
       web_url:
-        description: 'URL Website'
+        description: 'Website URL'
         required: true
         type: string
       app_name:
-        description: 'Nama Aplikasi'
+        description: 'App Name'
         required: true
         type: string
       icon_url:
-        description: 'URL Icon'
+        description: 'Icon URL'
         required: true
         type: string
 
 jobs:
   build:
-    name: Convert Web to APK
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
+      - name: Checkout
+        uses: actions/checkout@v3
+      
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget curl unzip imagemagick
-
+      
       - name: Install PWA2APK
         run: npm install -g pwa2apk
-
+      
       - name: Download Icon
         run: |
-          echo "📥 Downloading icon..."
           curl -L -o icon.png "${{ github.event.inputs.icon_url }}"
-          if [ ! -f "icon.png" ]; then
-            echo "❌ Failed to download icon!"
-            exit 1
-          fi
-          ls -la icon.png
-
-      - name: Convert Icon
+      
+      - name: Build APK
         run: |
-          # Convert to PNG if JPEG
-          if file icon.png | grep -q "JPEG"; then
-            convert icon.png icon_temp.png
-            mv icon_temp.png icon.png
-          fi
-          # Resize to 512x512
-          convert icon.png -resize 512x512 -background white -gravity center -extent 512x512 icon_512.png
-          mv icon_512.png icon.png
-          ls -la icon.png
-
-      - name: Build APK with PWA2APK
-        run: |
-          APP_NAME="${{ github.event.inputs.app_name }}"
-          WEB_URL="${{ github.event.inputs.web_url }}"
-          
-          echo "🌐 Building APK for: $WEB_URL"
-          echo "📱 App Name: $APP_NAME"
-          
-          pwa2apk "$WEB_URL" \
-            --name "$APP_NAME" \
+          pwa2apk "${{ github.event.inputs.web_url }}" \
+            --name "${{ github.event.inputs.app_name }}" \
             --icon "icon.png" \
-            --output "app.apk" \
-            --orientation "portrait"
-
-      - name: Verify APK
-        run: |
-          if [ -f "app.apk" ]; then
-            echo "✅ APK generated!"
-            ls -lh app.apk
-          else
-            echo "❌ APK not found!"
-            exit 1
-          fi
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+            --output app.apk
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
         with:
-          name: web2apk-${{ github.event.inputs.app_name }}
+          name: web2apk
           path: app.apk
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: Upload Build Logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web2apk-logs
-          path: |
-            *.log
-            *.txt
-          retention-days: 3      # 3. Setup Java (untuk Android build)
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      # 4. Setup Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # 5. Install dependencies
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            wget \
-            curl \
-            unzip \
-            imagemagick \
-            webp \
-            p7zip-full
-
-      # 6. Install PWA2APK
-      - name: Install PWA2APK
-        run: |
-          npm install -g pwa2apk @capacitor/cli @capacitor/android
-          echo "✅ PWA2APK installed"
-
-      # 7. Download icon
-      - name: Download Icon
-        run: |
-          echo "📥 Downloading icon from: ${{ github.event.inputs.icon_url }}"
-          curl -L -o icon.png "${{ github.event.inputs.icon_url }}"
-          
-          # Verify icon
-          if [ ! -f "icon.png" ]; then
-            echo "❌ Failed to download icon!"
-            exit 1
-          fi
-          
-          # Check if it's a valid image
-          file icon.png
-          identify icon.png || echo "⚠️ Could not identify image type"
-          
-          # Convert to PNG if needed
-          if file icon.png | grep -q "JPEG"; then
-            echo "🔄 Converting JPEG to PNG..."
-            convert icon.png icon_temp.png
-            mv icon_temp.png icon.png
-          fi
-          
-          # Resize icon to 512x512 (requirement for PWA2APK)
-          echo "🔄 Resizing icon to 512x512..."
-          convert icon.png -resize 512x512 -background white -gravity center -extent 512x512 icon_512.png
-          mv icon_512.png icon.png
-          
-          ls -la icon.png
-
-      # 8. Create WebView app using PWA2APK
-      - name: Build APK with PWA2APK
-        run: |
-          APP_NAME="${{ github.event.inputs.app_name }}"
-          WEB_URL="${{ github.event.inputs.web_url }}"
-          
-          echo "🌐 Building APK for: $WEB_URL"
-          echo "📱 App Name: $APP_NAME"
-          
-          # Create config for PWA2APK
-          cat > config.json << EOF
-          {
-            "appName": "$APP_NAME",
-            "appId": "com.webapp.${APP_NAME// /_}",
-            "version": "1.0.0",
-            "webUrl": "$WEB_URL",
-            "iconPath": "icon.png",
-            "orientation": "portrait",
-            "backgroundColor": "#ffffff",
-            "themeColor": "#2196F3",
-            "statusBarStyle": "light",
-            "navigationBarStyle": "light",
-            "android": {
-              "minSdkVersion": 21,
-              "targetSdkVersion": 33,
-              "permissions": [
-                "android.permission.INTERNET",
-                "android.permission.ACCESS_NETWORK_STATE"
-              ]
-            }
-          }
-          EOF
-          
-          cat config.json
-          
-          # Build with PWA2APK
-          npx pwa2apk build --config config.json --output app.apk
-          
-          # Alternative: use PWA2APK directly
-          # pwa2apk "$WEB_URL" \
-          #   --name "$APP_NAME" \
-          #   --icon "icon.png" \
-          #   --output "app.apk" \
-          #   --orientation "portrait" \
-          #   --background "#ffffff" \
-          #   --theme "#2196F3" \
-          #   --minSdk "21" \
-          #   --targetSdk "33"
-
-      # 9. Alternative: Build using Capacitor (jika PWA2APK gagal)
-      - name: Alternative Build with Capacitor
-        if: failure()
-        run: |
-          APP_NAME="${{ github.event.inputs.app_name }}"
-          WEB_URL="${{ github.event.inputs.web_url }}"
-          
-          echo "🔄 Trying alternative build with Capacitor..."
-          
-          # Create Capacitor project
-          mkdir -p capacitor-app
-          cd capacitor-app
-          
-          # Initialize
-          npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          
-          # Create www directory with index.html
-          mkdir -p www
-          cat > www/index.html << EOF
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>$APP_NAME</title>
-            <style>
-              body { margin: 0; padding: 0; overflow: hidden; height: 100vh; }
-              iframe { width: 100%; height: 100%; border: none; }
-            </style>
-          </head>
-          <body>
-            <iframe src="$WEB_URL"></iframe>
-          </body>
-          </html>
-          EOF
-          
-          # Copy icon
-          cp ../icon.png www/icon.png
-          
-          # Initialize Capacitor
-          npx cap init "$APP_NAME" "com.webapp.${APP_NAME// /_}" --web-dir www
-          npx cap add android
-          
-          # Build Android
-          npx cap open android
-          cd android
-          ./gradlew assembleDebug
-          
-          # Copy APK
-          find app/build/outputs -name "*.apk" -exec cp {} ../app.apk \;
-          cd ../..
-          
-          if [ -f "capacitor-app/app.apk" ]; then
-            cp capacitor-app/app.apk app.apk
-            echo "✅ Alternative build successful!"
-          fi
-
-      # 10. Verify APK exists
-      - name: Verify APK
-        run: |
-          if [ -f "app.apk" ]; then
-            echo "✅ APK generated successfully!"
-            ls -lh app.apk
-            file app.apk
-          else
-            echo "❌ APK not found!"
-            # Try to find APK in other locations
-            find . -name "*.apk" -type f -exec ls -lh {} \;
-            exit 1
-          fi
-
-      # 11. Upload APK as artifact
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: web2apk-${{ github.event.inputs.app_name }}
-          path: app.apk
-          retention-days: 7
-          if-no-files-found: error
-
-      # 12. Upload logs if failed
-      - name: Upload Build Logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web2apk-logs
-          path: |
-            *.log
-            *.txt
-            capacitor-app/**/*.log
-          retention-days: 3
-
-      # 13. Success notification
-      - name: Build Success
-        if: success()
-        run: |
-          echo "✅ Web to APK conversion successful!"
-          echo "📱 App: ${{ github.event.inputs.app_name }}"
-          echo "🌐 URL: ${{ github.event.inputs.web_url }}"
-
-      # 14. Failure notification
-      - name: Build Failed
-        if: failure()
-        run: |
-          echo "❌ Web to APK conversion failed!"
-          echo "📝 Check logs for details"
