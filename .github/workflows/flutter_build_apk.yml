@@ -3,38 +3,137 @@ name: Flutter Build APK
 on:
   workflow_dispatch:
     inputs:
-      job_id:
-        description: "ID unik untuk job build"
+      release_url:
+        description: 'URL Release GitHub tempat ZIP project disimpan'
         required: true
-      zip_path:
-        description: "Path file ZIP di repo (uploads/xxx.zip)"
+        type: string
+      build_type:
+        description: 'Tipe Build (debug/release)'
         required: true
-      zip_url:
-        description: "URL file ZIP (opsional)"
-        required: false
-        default: ""
+        default: 'release'
+        type: choice
+        options:
+          - debug
+          - release
+      tag:
+        description: 'Tag untuk identifikasi build'
+        required: true
+        type: string
 
 jobs:
   build:
+    name: Build Flutter APK
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
+    
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      # 1. Checkout repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
+      # 2. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'   # sesuaikan versi Flutter kamu
+          flutter-version: '3.16.0'
+          channel: 'stable'
+          cache: true
 
-      - name: Extract uploaded ZIP
+      # 3. Setup Java (untuk Android build)
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 4. Setup Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 5. Download project ZIP dari release
+      - name: Download Project ZIP
         run: |
-          echo "Unzipping ${{ github.event.inputs.zip_path }}"
-          mkdir project
-          unzip ${{ github.event.inputs.zip_path }} -d project
+          echo "📥 Downloading project from: ${{ github.event.inputs.release_url }}"
+          curl -L -o project.zip "${{ github.event.inputs.release_url }}/download/project.zip"
+          ls -la project.zip
+          
+      # 6. Extract project
+      - name: Extract Project
+        run: |
+          mkdir -p project
+          unzip -o project.zip -d project/
+          ls -la project/
+          
+      # 7. Verify pubspec.yaml exists
+      - name: Verify Flutter Project
+        run: |
+          if [ ! -f "project/pubspec.yaml" ]; then
+            echo "❌ pubspec.yaml not found! Not a valid Flutter project."
+            exit 1
+          fi
+          echo "✅ Flutter project verified!"
 
-      - name: Install dependencies
-        working-directory: project
+      # 8. Get dependencies
+      - name: Get Flutter Dependencies
+        run: |
+          cd project
+          flutter pub get
+          flutter clean
+
+      # 9. Build APK
+      - name: Build APK
+        run: |
+          cd project
+          if [ "${{ github.event.inputs.build_type }}" == "debug" ]; then
+            echo "🔨 Building DEBUG APK..."
+            flutter build apk --debug --no-tree-shake-icons
+          else
+            echo "🔨 Building RELEASE APK..."
+            flutter build apk --release --no-tree-shake-icons --split-per-abi
+          fi
+          
+      # 10. List built APKs
+      - name: List APK Files
+        run: |
+          echo "📱 APK files found:"
+          find project/build -name "*.apk" -type f -exec ls -lh {} \;
+          find project/build -name "*.apk" -type f -exec file {} \;
+
+      # 11. Upload APK as artifact
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-apk-${{ github.event.inputs.build_type }}
+          path: |
+            project/build/app/outputs/flutter-apk/*.apk
+            project/build/app/outputs/apk/**/*.apk
+          retention-days: 7
+          if-no-files-found: error
+
+      # 12. Upload build logs (jika gagal)
+      - name: Upload Build Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            project/build/**/*.log
+            project/build/**/*.txt
+          retention-days: 3
+
+      # 13. Notification success
+      - name: Build Success
+        if: success()
+        run: |
+          echo "✅ Build successful!"
+          echo "📱 APK generated successfully"
+
+      # 14. Notification failure
+      - name: Build Failed
+        if: failure()
+        run: |
+          echo "❌ Build failed!"
+          echo "Check logs for details"        working-directory: project
         run: flutter pub get
 
       - name: Build APK
