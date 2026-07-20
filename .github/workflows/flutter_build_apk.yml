@@ -1,7 +1,18 @@
 name: Flutter Build APK
 
 on:
-  workflow_dispatch:   # supaya bisa dipanggil manual/API
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "ID unik untuk job build"
+        required: true
+      zip_path:
+        description: "Path file ZIP di repo (uploads/xxx.zip)"
+        required: true
+      zip_url:
+        description: "URL file ZIP (opsional)"
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -16,14 +27,22 @@ jobs:
         with:
           flutter-version: '3.22.0'   # sesuaikan versi Flutter kamu
 
+      - name: Extract uploaded ZIP
+        run: |
+          echo "Unzipping ${{ github.event.inputs.zip_path }}"
+          mkdir project
+          unzip ${{ github.event.inputs.zip_path }} -d project
+
       - name: Install dependencies
+        working-directory: project
         run: flutter pub get
 
       - name: Build APK
+        working-directory: project
         run: flutter build apk --release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: apk-${{ github.event.inputs.job_id }}
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: project/build/app/outputs/flutter-apk/app-release.apk
