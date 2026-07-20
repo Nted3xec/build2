@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       web_url:
-        description: 'URL Website yang akan dijadikan APK'
+        description: 'URL Website'
         required: true
         type: string
       app_name:
@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       icon_url:
-        description: 'URL Icon (harus gambar PNG/JPG)'
+        description: 'URL Icon'
         required: true
         type: string
 
@@ -23,18 +23,94 @@ jobs:
     timeout-minutes: 15
     
     steps:
-      # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
 
-      # 3. Setup Java (untuk Android build)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget curl unzip imagemagick
+
+      - name: Install PWA2APK
+        run: npm install -g pwa2apk
+
+      - name: Download Icon
+        run: |
+          echo "📥 Downloading icon..."
+          curl -L -o icon.png "${{ github.event.inputs.icon_url }}"
+          if [ ! -f "icon.png" ]; then
+            echo "❌ Failed to download icon!"
+            exit 1
+          fi
+          ls -la icon.png
+
+      - name: Convert Icon
+        run: |
+          # Convert to PNG if JPEG
+          if file icon.png | grep -q "JPEG"; then
+            convert icon.png icon_temp.png
+            mv icon_temp.png icon.png
+          fi
+          # Resize to 512x512
+          convert icon.png -resize 512x512 -background white -gravity center -extent 512x512 icon_512.png
+          mv icon_512.png icon.png
+          ls -la icon.png
+
+      - name: Build APK with PWA2APK
+        run: |
+          APP_NAME="${{ github.event.inputs.app_name }}"
+          WEB_URL="${{ github.event.inputs.web_url }}"
+          
+          echo "🌐 Building APK for: $WEB_URL"
+          echo "📱 App Name: $APP_NAME"
+          
+          pwa2apk "$WEB_URL" \
+            --name "$APP_NAME" \
+            --icon "icon.png" \
+            --output "app.apk" \
+            --orientation "portrait"
+
+      - name: Verify APK
+        run: |
+          if [ -f "app.apk" ]; then
+            echo "✅ APK generated!"
+            ls -lh app.apk
+          else
+            echo "❌ APK not found!"
+            exit 1
+          fi
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web2apk-${{ github.event.inputs.app_name }}
+          path: app.apk
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload Build Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web2apk-logs
+          path: |
+            *.log
+            *.txt
+          retention-days: 3      # 3. Setup Java (untuk Android build)
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
