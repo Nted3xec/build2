@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_url:
-        description: 'URL Release'
+        description: 'URL Download ZIP'
         required: true
         type: string
       build_type:
@@ -35,6 +35,88 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+      
+      - name: Download Project
+        run: |
+          echo "📥 Downloading from: ${{ github.event.inputs.release_url }}"
+          
+          # Download dengan header yang benar
+          curl -L \
+            -H "Accept: application/octet-stream" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -o project.zip \
+            "${{ github.event.inputs.release_url }}"
+          
+          echo ""
+          echo "=== File Info ==="
+          ls -la project.zip
+          file project.zip
+          
+          # Cek ukuran file
+          FILE_SIZE=$(stat -c%s project.zip)
+          echo "File size: $FILE_SIZE bytes"
+          
+          if [ $FILE_SIZE -lt 1000 ]; then
+            echo "❌ File terlalu kecil! Mungkin error page."
+            echo "=== Content of file ==="
+            cat project.zip
+            exit 1
+          fi
+      
+      - name: Extract Project
+        run: |
+          echo "=== Validating ZIP ==="
+          
+          # Coba unzip test
+          if ! unzip -t project.zip 2>&1; then
+            echo "❌ ZIP file corrupt or invalid!"
+            echo "=== File content (first 200 bytes) ==="
+            head -c 200 project.zip
+            exit 1
+          fi
+          
+          echo "✅ ZIP valid"
+          
+          echo ""
+          echo "=== Extracting ZIP ==="
+          mkdir -p project
+          unzip -o project.zip -d project/
+          
+          echo ""
+          echo "=== Extracted files ==="
+          ls -la project/
+          find project -type f | head -20
+      
+      - name: Check pubspec.yaml
+        run: |
+          if [ ! -f "project/pubspec.yaml" ]; then
+            echo "❌ pubspec.yaml not found!"
+            echo "=== Files in project ==="
+            find project -type f | head -20
+            exit 1
+          fi
+          echo "✅ Flutter project verified!"
+      
+      - name: Get Dependencies
+        working-directory: project
+        run: flutter pub get
+      
+      - name: Build APK
+        working-directory: project
+        run: |
+          if [ "${{ github.event.inputs.build_type }}" == "debug" ]; then
+            flutter build apk --debug
+          else
+            flutter build apk --release
+          fi
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-apk
+          path: project/build/app/outputs/apk/**/*.apk
+          retention-days: 7
+          if-no-files-found: error          java-version: '17'
       
       - name: Download Project
         run: |
