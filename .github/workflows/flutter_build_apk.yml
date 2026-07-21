@@ -39,22 +39,101 @@ jobs:
       - name: Download Project
         run: |
           echo "📥 Downloading from: ${{ github.event.inputs.release_url }}"
-          curl -L -o project.zip "${{ github.event.inputs.release_url }}/download/project.zip"
+          
+          # Coba download dengan berbagai metode
+          echo "=== Method 1: Direct download ==="
+          curl -L -v -o project.zip "${{ github.event.inputs.release_url }}/download/project.zip" 2>&1 | head -50
+          
+          echo ""
+          echo "=== File Info ==="
           ls -la project.zip
+          file project.zip
+          
+          echo ""
+          echo "=== File Size ==="
+          du -h project.zip
+          
+          echo ""
+          echo "=== First 100 bytes (hex) ==="
+          xxd project.zip | head -10
+          
+          echo ""
+          echo "=== First 100 bytes (text) ==="
+          head -c 100 project.zip
+          
+          # Jika file terlalu kecil, mungkin error
+          FILE_SIZE=$(stat -c%s project.zip)
+          if [ $FILE_SIZE -lt 1000 ]; then
+            echo "❌ File terlalu kecil! Mungkin error page."
+            echo "=== Content of file ==="
+            cat project.zip
+            exit 1
+          fi
+      
+      - name: Try Alternative Download
+        if: failure()
+        run: |
+          echo "🔄 Trying alternative download method..."
+          
+          # Coba dengan header yang berbeda
+          curl -L -H "Accept: application/zip" -o project2.zip "${{ github.event.inputs.release_url }}/download/project.zip"
+          
+          if [ -f "project2.zip" ] && [ -s "project2.zip" ]; then
+            mv project2.zip project.zip
+            echo "✅ Alternative download successful!"
+            ls -la project.zip
+          else
+            echo "❌ Alternative download failed"
+            exit 1
+          fi
       
       - name: Extract Project
         run: |
+          echo "=== Validating ZIP ==="
+          
+          # Cek tipe file
+          file project.zip
+          
+          # Coba unzip dengan force
+          if ! unzip -t project.zip 2>&1; then
+            echo "❌ ZIP file corrupt or invalid!"
+            
+            # Coba lihat isi file
+            echo "=== File content (first 200 bytes) ==="
+            head -c 200 project.zip
+            
+            # Coba sebagai HTML
+            if grep -q "<html" project.zip; then
+              echo "❌ File is HTML, not ZIP!"
+              echo "=== HTML content ==="
+              cat project.zip | head -20
+            fi
+            
+            exit 1
+          fi
+          
+          echo "✅ ZIP valid"
+          
+          echo ""
+          echo "=== Extracting ZIP ==="
           mkdir -p project
           unzip -o project.zip -d project/
+          
+          echo ""
+          echo "=== Extracted files ==="
           ls -la project/
+          find project -type f | head -20
       
       - name: Check pubspec.yaml
         run: |
           if [ ! -f "project/pubspec.yaml" ]; then
             echo "❌ pubspec.yaml not found!"
+            echo "=== Files in project ==="
+            find project -type f | head -20
             exit 1
           fi
           echo "✅ Flutter project verified!"
+          cat project/pubspec.yaml | head -10
       
       - name: Get Dependencies
         working-directory: project
